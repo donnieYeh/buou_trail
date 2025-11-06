@@ -195,6 +195,8 @@ class MultiAssetTradingBot:
             abs(float(position['contracts'])) for position in self.fetch_positions())  # 初始总仓位大小
         try:
             while True:
+                # 统一节流：每轮循环先休眠，避免任意 continue 导致零等待
+                time.sleep(self.monitor_interval)
                 # 检查仓位总规模变化
                 current_position_size = sum(abs(float(position['contracts'])) for position in self.fetch_positions())
                 if current_position_size > previous_position_size:
@@ -202,9 +204,12 @@ class MultiAssetTradingBot:
                     self.logger.info("检测到新增仓位操作，重置最高盈利和档位状态")
                     self.reset_highest_profit_and_tier()
                     previous_position_size = current_position_size
-                    # 防止跳过本次循环时出现零等待快速重试
-                    time.sleep(self.monitor_interval)
                     continue  # 跳过本次循环
+
+                # 无持仓时跳过风控判断，避免0%触发止损
+                if current_position_size == 0:
+                    self.logger.info("当前无持仓，跳过风控判断")
+                    continue
 
                 total_profit = self.calculate_average_profit()
                 self.logger.info(f"当前总盈利: {total_profit:.2f}%")
@@ -231,8 +236,6 @@ class MultiAssetTradingBot:
                         self.logger.info(f"总盈利触发低档保护止盈，当前回撤到: {total_profit:.2f}%，执行全部平仓")
                         self.close_all_positions()
                         self.reset_highest_profit_and_tier()
-                        # 防止连续触发导致快速重试
-                        time.sleep(self.monitor_interval)
                         continue
                 elif self.current_tier == "第一档移动止盈":
                     trail_stop_loss = self.highest_total_profit * (1 - self.trail_stop_loss_pct)
@@ -244,8 +247,6 @@ class MultiAssetTradingBot:
                             f"总盈利达到第一档回撤阈值，最高总盈利: {self.highest_total_profit:.2f}%，当前回撤到: {total_profit:.2f}%，执行全部平仓")
                         self.close_all_positions()
                         self.reset_highest_profit_and_tier()
-                        # 防止连续触发导致快速重试
-                        time.sleep(self.monitor_interval)
                         continue
 
                 elif self.current_tier == "第二档移动止盈":
@@ -256,8 +257,6 @@ class MultiAssetTradingBot:
                         self.send_feishu_notification(f"总盈利达到第二档回撤阈值，最高总盈利: {self.highest_total_profit:.2f}%，当前回撤到: {total_profit:.2f}%，执行全部平仓")
                         self.close_all_positions()
                         self.reset_highest_profit_and_tier()
-                        # 防止连续触发导致快速重试
-                        time.sleep(self.monitor_interval)
                         continue
                 # 全局止损
                 if total_profit <= -self.stop_loss_pct:
@@ -265,12 +264,9 @@ class MultiAssetTradingBot:
                     self.send_feishu_notification(f"总盈利触发全局止损，当前回撤到: {total_profit:.2f}%，执行全部平仓")
                     self.close_all_positions()
                     self.reset_highest_profit_and_tier()
-                    # 防止连续触发导致快速重试
-                    time.sleep(self.monitor_interval)
                     continue
 
 
-                time.sleep(self.monitor_interval)
 
         except KeyboardInterrupt:
             self.logger.info("程序收到中断信号，开始退出...")
