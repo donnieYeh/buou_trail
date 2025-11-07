@@ -7,10 +7,12 @@ import json
 import okx.Trade_api as TradeAPI
 from logging.handlers import TimedRotatingFileHandler
 
+from risk_utils import StopLossEvaluator
+
 
 class MultiAssetTradingBot:
     def __init__(self, config, feishu_webhook=None, monitor_interval=4):
-        self.stop_loss_pct = config["all_stop_loss_pct"]  # 全局止损百分比
+        self.stop_loss_setting = config["all_stop_loss_pct"]  # 全局止损配置（百分比或ATR）
         self.low_trail_stop_loss_pct = config["all_low_trail_stop_loss_pct"]
         self.trail_stop_loss_pct = config["all_trail_stop_loss_pct"]
         self.higher_trail_stop_loss_pct = config["all_higher_trail_stop_loss_pct"]
@@ -20,6 +22,7 @@ class MultiAssetTradingBot:
         self.feishu_webhook = feishu_webhook
         self.monitor_interval = monitor_interval  # 监控循环时间是分仓监控的3倍
         self.highest_total_profit = 0  # 记录最高总盈利
+        self.current_tier = "无"
 
         # 配置交易所
         self.exchange = ccxt.okx({
@@ -51,6 +54,12 @@ class MultiAssetTradingBot:
 
         self.logger = logger
         self.position_mode = self.get_position_mode()  # 获取持仓模式
+        self.stop_loss = StopLossEvaluator(self.exchange, self.logger, self.stop_loss_setting)
+        self.stop_loss_mode = self.stop_loss.rule["mode"]
+        self.stop_loss_threshold = (
+            self.stop_loss.rule["value"] if self.stop_loss_mode == "percent" else None
+        )
+        self.next_atr_refresh = self._compute_next_refresh() if self.stop_loss_mode == "atr" else None
 
     def get_position_mode(self):
         try:
@@ -68,6 +77,14 @@ class MultiAssetTradingBot:
         except Exception as e:
             self.logger.error(f"无法检测持仓模式: {e}")
             return None
+
+    @staticmethod
+    def _compute_next_refresh(current_ts: float = None) -> float:
+        """计算下一次15分钟整点的时间戳。"""
+        if current_ts is None:
+            current_ts = time.time()
+        interval = 15 * 60
+        return ((int(current_ts) // interval) + 1) * interval
 
     def send_feishu_notification(self, message):
         if self.feishu_webhook:
@@ -152,18 +169,22 @@ class MultiAssetTradingBot:
                 except Exception as e:
                     self.logger.error(f"Error closing position for {symbol}: {e}")
 
-    def calculate_average_profit(self):
-        positions = self.fetch_positions()
+    def calculate_average_profit(self, positions=None):
+        if positions is None:
+            positions = self.fetch_positions()
         total_profit_pct = 0.0
-        num_positions = 0
+        stats = []
 
         for position in positions:
+            contracts = float(position.get('contracts', 0))
+            if contracts == 0:
+                continue
+
             symbol = position['symbol']
             entry_price = float(position['entryPrice'])
             current_price = float(position['markPrice'])
             side = position['side']
 
-            # 计算单个仓位的浮动盈利百分比
             if side == 'long':
                 profit_pct = (current_price - entry_price) / entry_price * 100
             elif side == 'short':
@@ -171,17 +192,22 @@ class MultiAssetTradingBot:
             else:
                 continue
 
-            # 累加总盈利百分比
             total_profit_pct += profit_pct
-            num_positions += 1
+            stats.append({
+                "symbol": symbol,
+                "side": side,
+                "entry_price": entry_price,
+                "current_price": current_price,
+                "profit_pct": profit_pct,
+                "contracts": contracts,
+            })
 
-            # 记录单个仓位的盈利情况
-            self.logger.info(f"仓位 {symbol}，方向: {side}，开仓价格: {entry_price}，当前价格: {current_price}，"
-                             f"浮动盈亏: {profit_pct:.2f}%")
+            self.logger.info(
+                f"仓位 {symbol}，方向: {side}，开仓价格: {entry_price}，当前价格: {current_price}，浮动盈亏: {profit_pct:.2f}%"
+            )
 
-        # 计算平均浮动盈利百分比
-        average_profit_pct = total_profit_pct / num_positions if num_positions > 0 else 0
-        return average_profit_pct
+        average_profit_pct = total_profit_pct / len(stats) if stats else 0
+        return average_profit_pct, stats
 
     def reset_highest_profit_and_tier(self):
         """重置最高总盈利和当前档位状态"""
@@ -192,13 +218,22 @@ class MultiAssetTradingBot:
     def monitor_total_profit(self):
         self.logger.info("启动主循环，开始监控总盈利...")
         previous_position_size = sum(
-            abs(float(position['contracts'])) for position in self.fetch_positions())  # 初始总仓位大小
+            abs(float(position.get('contracts', 0))) for position in self.fetch_positions()
+        )  # 初始总仓位大小
         try:
             while True:
                 # 统一节流：每轮循环先休眠，避免任意 continue 导致零等待
                 time.sleep(self.monitor_interval)
-                # 检查仓位总规模变化
-                current_position_size = sum(abs(float(position['contracts'])) for position in self.fetch_positions())
+                positions = self.fetch_positions()
+                active_positions = []
+                current_position_size = 0.0
+                for position in positions:
+                    contracts = abs(float(position.get('contracts', 0)))
+                    if contracts == 0:
+                        continue
+                    current_position_size += contracts
+                    active_positions.append(position)
+
                 if current_position_size > previous_position_size:
                     self.send_feishu_notification(f"检测到仓位变化操作，重置最高盈利和档位状态")
                     self.logger.info("检测到新增仓位操作，重置最高盈利和档位状态")
@@ -209,9 +244,19 @@ class MultiAssetTradingBot:
                 # 无持仓时跳过风控判断，避免0%触发止损
                 if current_position_size == 0:
                     self.logger.info("当前无持仓，跳过风控判断")
+                    previous_position_size = current_position_size
                     continue
 
-                total_profit = self.calculate_average_profit()
+                if self.stop_loss_mode == "atr":
+                    now_ts = time.time()
+                    if now_ts >= self.next_atr_refresh:
+                        symbols = [position['symbol'] for position in active_positions]
+                        if symbols:
+                            self.logger.info("到达15分钟整点，刷新ATR数据")
+                            self.stop_loss.refresh_atr(symbols)
+                        self.next_atr_refresh = self._compute_next_refresh(now_ts)
+
+                total_profit, position_stats = self.calculate_average_profit(active_positions)
                 self.logger.info(f"当前总盈利: {total_profit:.2f}%")
                 if total_profit > self.highest_total_profit:
                     self.highest_total_profit = total_profit
@@ -258,13 +303,59 @@ class MultiAssetTradingBot:
                         self.close_all_positions()
                         self.reset_highest_profit_and_tier()
                         continue
-                # 全局止损
-                if total_profit <= -self.stop_loss_pct:
-                    self.logger.info(f"总盈利触发全局止损，当前回撤到: {total_profit:.2f}%，执行全部平仓")
-                    self.send_feishu_notification(f"总盈利触发全局止损，当前回撤到: {total_profit:.2f}%，执行全部平仓")
+                # 止损距离监控
+                stop_triggered = False
+                triggered_symbol = None
+                triggered_context = None
+                for stat in position_stats:
+                    triggered, context = self.stop_loss.should_stop(
+                        stat["symbol"],
+                        stat["entry_price"],
+                        stat["current_price"],
+                        stat["side"],
+                        stat["profit_pct"],
+                    )
+                    if context:
+                        if context["mode"] == "percent":
+                            self.logger.info(f"{stat['symbol']} 距离止损线: {context['distance_pct']:.2f}%")
+                        elif context["mode"] == "atr":
+                            distance_to_stop = context.get("distance_to_stop")
+                            if distance_to_stop is not None:
+                                self.logger.info(
+                                    f"{stat['symbol']} 距离止损线: {distance_to_stop:.4f} (价格差)"
+                                )
+                    if self.stop_loss_mode == "atr" and triggered and context:
+                        stop_triggered = True
+                        triggered_symbol = stat["symbol"]
+                        triggered_context = {
+                            **context,
+                            "current_price": stat["current_price"],
+                            "side": stat["side"],
+                        }
+                        break
+
+                if self.stop_loss_mode == "atr" and stop_triggered and triggered_context:
+                    message = (
+                        f"{triggered_symbol} ATR止损触发，止损价: {triggered_context['stop_price']:.4f}，"
+                        f"当前价: {triggered_context['current_price']:.4f}"
+                    )
+                    self.logger.info(message)
+                    self.send_feishu_notification(message)
                     self.close_all_positions()
                     self.reset_highest_profit_and_tier()
+                    previous_position_size = 0.0
                     continue
+                # 全局止损
+                if self.stop_loss_mode == "percent" and self.stop_loss_threshold is not None:
+                    if total_profit <= -self.stop_loss_threshold:
+                        self.logger.info(f"总盈利触发全局止损，当前回撤到: {total_profit:.2f}%，执行全部平仓")
+                        self.send_feishu_notification(f"总盈利触发全局止损，当前回撤到: {total_profit:.2f}%，执行全部平仓")
+                        self.close_all_positions()
+                        self.reset_highest_profit_and_tier()
+                        previous_position_size = 0.0
+                        continue
+
+                previous_position_size = current_position_size
 
 
 
