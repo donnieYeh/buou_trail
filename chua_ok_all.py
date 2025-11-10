@@ -17,6 +17,7 @@ class MultiAssetTradingBot:
         self.trail_stop_loss_pct = config["all_trail_stop_loss_pct"]
         self.higher_trail_stop_loss_pct = config["all_higher_trail_stop_loss_pct"]
         self.low_trail_profit_threshold = config["all_low_trail_profit_threshold"]
+        self.low_trail_enabled = self.low_trail_profit_threshold != -1
         self.first_trail_profit_threshold = config["all_first_trail_profit_threshold"]
         self.second_trail_profit_threshold = config["all_second_trail_profit_threshold"]
         self.feishu_webhook = feishu_webhook
@@ -53,6 +54,8 @@ class MultiAssetTradingBot:
         logger.addHandler(console_handler)
 
         self.logger = logger
+        if not self.low_trail_enabled:
+            self.logger.info("低档保护止盈已关闭（all_low_trail_profit_threshold = -1）")
         self.position_mode = self.get_position_mode()  # 获取持仓模式
         self.stop_loss = StopLossEvaluator(self.exchange, self.logger, self.stop_loss_setting)
         self.stop_loss_mode = self.stop_loss.rule["mode"]
@@ -265,7 +268,7 @@ class MultiAssetTradingBot:
                     self.current_tier = "第二档移动止盈"
                 elif self.highest_total_profit >= self.first_trail_profit_threshold:
                     self.current_tier = "第一档移动止盈"
-                elif self.highest_total_profit >= self.low_trail_profit_threshold:
+                elif self.low_trail_enabled and self.highest_total_profit >= self.low_trail_profit_threshold:
                     self.current_tier = "低档保护止盈"
                 else:
                     self.current_tier = "无"

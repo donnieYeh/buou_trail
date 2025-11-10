@@ -55,7 +55,7 @@ bitget交易所需设置**双向持仓**
 - **low_trail_stop_loss_pct**: 低档保护止盈回撤百分比，表示在低档保护止盈时允许的最大回撤位置，例如 0.3 表示 0.3% 固定平仓。
 - **trail_stop_loss_pct**: 第一档移动止盈回撤百分比，表示在第一档移动止盈时允许的最大回撤百分比，例如 0.2 表示 20% 回撤固定平仓。
 - **higher_trail_stop_loss_pct**: 第二档移动止盈回撤百分比，表示在第二档移动止盈时允许的最大回撤百分比，例如 0.25 表示 25% 回撤固定平仓。
-- **low_trail_profit_threshold**: 低档保护止盈触发阈值，表示达到该盈利百分比时进入低档保护止盈，例如 0.4 表示开仓价 0.4% 时触发。
+- **low_trail_profit_threshold**: 低档保护止盈触发阈值，表示达到该盈利百分比时进入低档保护止盈，例如 0.4 表示开仓价 0.4% 时触发，设置为 -1 可关闭该策略。
 - **first_trail_profit_threshold**: 第一档移动止盈触发阈值，表示达到该盈利百分比时进入第一档移动止盈，例如 1.0 表示开仓价 1% 时触发。
 - **second_trail_profit_threshold**: 第二档移动止盈触发阈值，表示达到该盈利百分比时进入第二档移动止盈，例如 3.0 表示开仓价 3% 时触发。
 - **blacklist**: 黑名单列表，包含不需要监控的交易对，例如 ["ETH/USDT:USDT"]。
@@ -70,13 +70,13 @@ bitget交易所需设置**双向持仓**
 - **low_trail_stop_loss_pct**: 低档保护止盈回撤百分比，表示在低档保护止盈时允许的最大回撤位置，例如 0.3 表示 0.3% 固定平仓。
 - **trail_stop_loss_pct**: 第一档移动止盈回撤百分比，表示在第一档移动止盈时允许的最大回撤百分比，例如 0.2 表示 20% 回撤固定平仓。
 - **higher_trail_stop_loss_pct**: 第二档移动止盈回撤百分比，表示在第二档移动止盈时允许的最大回撤百分比，例如 0.25 表示 25% 回撤固定平仓。
-- **low_trail_profit_threshold**: 低档保护止盈触发阈值，表示达到该盈利百分比时进入低档保护止盈，例如 0.4 表示开仓价 0.4% 时触发。
+- **low_trail_profit_threshold**: 低档保护止盈触发阈值，表示达到该盈利百分比时进入低档保护止盈，例如 0.4 表示开仓价 0.4% 时触发，设置为 -1 可关闭该策略。
 - **first_trail_profit_threshold**: 第一档移动止盈触发阈值，表示达到该盈利百分比时进入第一档移动止盈，例如 1.0 表示开仓价 1% 时触发。
 - **second_trail_profit_threshold**: 第二档移动止盈触发阈值，表示达到该盈利百分比时进入第二档移动止盈，例如 3.0 表示开仓价 3% 时触发。
 - **blacklist**: 黑名单列表，包含不需要监控的交易对，例如 ["ETH-USDT-SWAP"]。
 - **all_stop_loss_pct**: 全仓止损配置，支持数值百分比或 `<周期>ATR` 格式（例如 `32ATR` 表示 15 分钟 32 周期 ATR 的两倍作为止损价差）。ATR 数值会在每个 15 分钟整点刷新一次，并在监控循环中打印与止损价的距离。
 - **all_low_trail_stop_loss_pct / all_trail_stop_loss_pct / all_higher_trail_stop_loss_pct**: 对应全仓低档、一档、二档回撤止盈阈值。
-- **all_low_trail_profit_threshold / all_first_trail_profit_threshold / all_second_trail_profit_threshold**: 控制总盈利进入各档止盈的触发点。
+- **all_low_trail_profit_threshold / all_first_trail_profit_threshold / all_second_trail_profit_threshold**: 控制总盈利进入各档止盈的触发点，将 `all_low_trail_profit_threshold` 设为 -1 可关闭低档保护止盈策略。
 
 #### BITGET 配置
 
@@ -88,7 +88,7 @@ bitget交易所需设置**双向持仓**
 - **low_trail_stop_loss_pct**: 低档保护止盈回撤百分比，表示在低档保护止盈时允许的最大回撤位置，例如 0.3 表示 0.3% 固定平仓。
 - **trail_stop_loss_pct**: 第一档移动止盈回撤百分比，表示在第一档移动止盈时允许的最大回撤百分比，例如 0.2 表示 20% 回撤固定平仓。
 - **higher_trail_stop_loss_pct**: 第二档移动止盈回撤百分比，表示在第二档移动止盈时允许的最大回撤百分比，例如 0.25 表示 25% 回撤固定平仓。
-- **low_trail_profit_threshold**: 低档保护止盈触发阈值，表示达到该盈利百分比时进入低档保护止盈，例如 0.4 表示开仓价 0.4% 时触发。
+- **low_trail_profit_threshold**: 低档保护止盈触发阈值，表示达到该盈利百分比时进入低档保护止盈，例如 0.4 表示开仓价 0.4% 时触发，设置为 -1 可关闭该策略。
 - **first_trail_profit_threshold**: 第一档移动止盈触发阈值，表示达到该盈利百分比时进入第一档移动止盈，例如 1.0 表示开仓价 1% 时触发。
 - **second_trail_profit_threshold**: 第二档移动止盈触发阈值，表示达到该盈利百分比时进入第二档移动止盈，例如 3.0 表示开仓价 3% 时触发。
 - **blacklist**: 黑名单列表，包含不需要监控的交易对，例如 ["ETH-USDT-SWAP"]。
